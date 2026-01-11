@@ -3,15 +3,19 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { processOrder } from "./worker";
 import { api, errorSchemas } from "@shared/routes";
+import os from "os";
+import { execSync } from "child_process";
 import { OrderStatus, OrderTypes } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 
 // Helper for Envelope Response
-function respond(res: any, data: any = null, error: any = null, status: number = 200) {
+function respond(res: any, data: any = null, error: any = null, status: number = 200, version: string = "v1") {
   const meta = {
     request_id: randomUUID(), // In a real app, from req context
     server_time: new Date().toISOString(),
+    generatedAt: new Date().toISOString(),
+    version: version
   };
 
   const body = {
@@ -53,6 +57,45 @@ export async function registerRoutes(
   // 0) GET /api/health
   app.get("/api/health", (req, res) => {
     respond(res, { status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // 0.1) GET /api/platform/detect
+  app.get("/api/platform/detect", async (req, res) => {
+    const detectCommand = (cmd: string) => {
+      try {
+        execSync(cmd, { stdio: 'ignore' });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const platformData = {
+      os: {
+        platform: os.platform(),
+        release: os.release(),
+        type: os.type(),
+        arch: os.arch(),
+      },
+      systemd: {
+        detected: detectCommand('systemctl --version'),
+        active: detectCommand('systemctl is-system-running'),
+      },
+      docker: {
+        detected: detectCommand('docker --version'),
+        running: detectCommand('docker info'),
+      },
+      supabase: {
+        detected: false, // Backend-only detection, usually not present on VPS
+      },
+      ports: {
+        80: detectCommand('lsof -i :80'),
+        443: detectCommand('lsof -i :443'),
+        8080: true, // Current service port
+      }
+    };
+
+    respond(res, platformData, null, 200);
   });
 
   // 1) GET /runners
