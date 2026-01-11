@@ -70,28 +70,35 @@ export async function registerRoutes(
       }
     };
 
+    // Strict JSON v1 Schema implementation
     const platformData = {
-      os: {
-        platform: os.platform(),
-        release: os.release(),
-        type: os.type(),
-        arch: os.arch(),
+      os: { 
+        detected: true, 
+        details: [
+          { key: "platform", value: os.platform() },
+          { key: "release", value: os.release() },
+          { key: "type", value: os.type() },
+          { key: "arch", value: os.arch() }
+        ] 
       },
-      systemd: {
-        detected: detectCommand('systemctl --version'),
-        active: detectCommand('systemctl is-system-running'),
+      systemd: { 
+        detected: detectCommand('systemctl --version'), 
+        services: [] 
       },
-      docker: {
-        detected: detectCommand('docker --version'),
-        running: detectCommand('docker info'),
+      docker: { 
+        detected: detectCommand('docker --version'), 
+        containers: [] 
       },
-      supabase: {
-        detected: false, // Backend-only detection, usually not present on VPS
+      supabase: { 
+        detected: false, 
+        projects: [] 
       },
-      ports: {
-        80: detectCommand('lsof -i :80'),
-        443: detectCommand('lsof -i :443'),
-        8080: true, // Current service port
+      ports: { 
+        open: [80, 443, 8080].filter(p => {
+          if (p === 8080) return true;
+          return detectCommand(`lsof -i :${p}`);
+        }), 
+        reserved: [] 
       }
     };
 

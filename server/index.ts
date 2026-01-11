@@ -95,24 +95,40 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
+
+    if (req.path.startsWith("/api")) {
+      return res.status(status).json({
+        ok: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: message,
+          details: process.env.NODE_ENV === "development" ? err.stack : undefined
+        },
+        meta: {
+          generatedAt: new Date().toISOString(),
+          version: "v1"
+        }
+      });
+    }
 
     res.status(status).json({ message });
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  // Fallback 404 pour les routes /api/* non trouvées
-  app.use("/api/*", (req, res) => {
+  // IMPORTANT: Ensure /api/* routes NEVER return HTML or fall back to SPA
+  app.all("/api/*", (req, res) => {
     res.status(404).json({
       ok: false,
       error: {
         code: "NOT_FOUND",
-        message: `API route ${req.path} not found`
+        message: `API route ${req.method} ${req.path} not found`
+      },
+      meta: {
+        generatedAt: new Date().toISOString(),
+        version: "v1"
       }
     });
   });
