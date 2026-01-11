@@ -1,0 +1,185 @@
+TU ES IA DEV BACKEND. LIVRAISON EXÉCUTOIRE.
+
+CONTEXTE
+Nous construisons IKOMA RUNNER 3.0 — PHASE 1B (Gateway API minimal mais SOLIDE).
+Le frontend (Lovable) existe déjà et consomme une API REST.
+Le VPS est vierge. Aucun Supabase requis. Aucun Docker requis.
+
+OBJECTIF
+Implémenter un service "ikoma-gateway" (Node.js) qui expose EXACTEMENT 6 endpoints et respecte un contrat d’enveloppe strict.
+Le service doit :
+- Persister runners, orders, evidences, facts
+- Exécuter réellement les orders runner.selftest et runner.reconcile sur le serveur (shell safe)
+- Capturer stdout/stderr/exit_code
+- Extraire les blocs ORDER_RESULT_JSON et PLATFORM_FACTS_JSON depuis stdout (si présents)
+- Fournir facts=null si aucun facts disponible
+- Être déployable comme service systemd
+- Être SOLIDE (validation, types, erreurs, logs), tout en restant PHASE 1 (pas d’autres modules)
+
+STACK IMPOSÉE
+- Node.js 20+
+- TypeScript
+- Framework: Fastify (préféré) ou Express (si tu sais mieux)
+- DB: SQLite (via better-sqlite3 ou sqlite + drizzle/prisma)
+- Validation: zod
+- Logging: pino
+- Aucun Supabase
+- Aucun Docker
+
+CONTRAT RÉPONSE (OBLIGATOIRE)
+Toutes les réponses:
+{
+  "ok": true,
+  "data": ...,
+  "error": null,
+  "meta": { "request_id": "uuid", "server_time": "ISO8601" }
+}
+Erreurs:
+{
+  "ok": false,
+  "data": null,
+  "error": { "code": "string", "message": "string", "details": {} },
+  "meta": { "request_id": "uuid", "server_time": "ISO8601" }
+}
+
+ENDPOINTS (LISTE FERMÉE)
+READ:
+1) GET /runners
+2) GET /runners/:id
+3) GET /runners/:id/orders?limit&cursor (cursor optionnel)
+4) GET /evidences?runner_id&order_id
+   - RÈGLE: au moins un param runner_id ou order_id obligatoire
+
+WRITE:
+5) POST /runners/:id/orders
+   body: { "type": "runner.selftest"|"runner.reconcile", "client_request_id"?: "uuid" }
+   - RÈGLE: retourne order status="queued" au départ
+   - Idempotence: si même client_request_id déjà utilisé pour (runner_id,type), retourner l’existante (200) sinon créer (201)
+
+6) DELETE /runners/:id
+   - Supprime du registry (DB) uniquement
+
+MODÈLES DE DONNÉES (OBLIGATOIRES)
+Runner:
+- id (string)
+- name (string)
+- created_at ISO
+- last_seen_at ISO
+- ttl_seconds number (default 60)
+- labels json (default {})
+- facts_ref: { facts_id, order_id, evidence_id, checked_at } (nullable fields)
+
+Order:
+- id
+- runner_id
+- type: runner.selftest | runner.reconcile
+- status: queued | running | succeeded | failed
+- created_at
+- started_at nullable
+- finished_at nullable
+- exit_code nullable (obligatoire quand finished_at non-null)
+- summary string
+- evidence_id nullable
+
+Evidence:
+- id
+- runner_id
+- order_id
+- created_at
+- stdout text
+- stderr text
+- exit_code int
+
+Facts:
+- id
+- component="runner"
+- runner_id
+- order_id
+- evidence_id
+- checked_at
+- checks json (filesystem_ok, docker_ok, compose_ok booleans)
+- raw json (platform_facts_json object)
+
+EXÉCUTION DES ORDERS (CRITIQUE)
+Implémente un worker interne simple:
+- À la création d’une order (queued), lancer exécution async (setImmediate / background task)
+- Passer status -> running, started_at
+- Exécuter selon type:
+
+runner.selftest:
+- Test 1: filesystem écrivable (écrire un fichier temporaire puis le supprimer)
+- Test 2: docker --version (si commande non trouvée => docker_ok=false)
+- Test 3: docker compose version (ou docker-compose --version) (si absent => compose_ok=false)
+- Produire stdout contenant:
+  ORDER_RESULT_JSON:
+  { "success": true|false, "type": "...", "checks": {...}, "timestamp": "ISO" }
+
+  PLATFORM_FACTS_JSON:
+  { "component":"runner", "checks": { "filesystem_ok":..., "docker_ok":..., "compose_ok":... } }
+
+- Politique exit_code:
+  - exit_code=0 si filesystem_ok=true ET (docker_ok/compose_ok peuvent être false sans bloquer la phase 1)
+  - MAIS: si filesystem_ok=false => exit_code!=0 et success=false
+
+runner.reconcile:
+- Refaire exactement la même détection que selftest (ou appeler la même fonction)
+- Même structure stdout (ORDER_RESULT_JSON + PLATFORM_FACTS_JSON)
+
+CAPTURE & PERSISTENCE
+- Toujours persister Evidence (stdout/stderr/exit_code)
+- Mettre à jour Order avec finished_at, status, exit_code, evidence_id
+- Parser stdout pour extraire PLATFORM_FACTS_JSON et persister Facts
+- Mettre à jour runner.facts_ref vers ce facts_id/evidence_id/order_id/checked_at
+
+SEED / BOOTSTRAP
+- Fournir une commande npm script "seed" qui crée au moins 1 runner:
+  id="r_local", name="local-runner", ttl_seconds=60, last_seen_at=now
+- Fournir un endpoint interne OPTIONNEL désactivé par défaut pour heartbeat (pas exposé en phase 1) — seulement si c’est isolé et non utilisé.
+
+CORS
+- Activer CORS configurable via env:
+  ALLOWED_ORIGINS="*"
+- Ne pas bloquer Lovable UI.
+
+CONFIG ENV
+- PORT=8080
+- DB_PATH=/var/lib/ikoma/ikoma.db
+- ALLOWED_ORIGINS=*
+- LOG_LEVEL=info
+
+LIVRABLES OBLIGATOIRES
+1) Repo complet TypeScript avec:
+   - src/server.ts
+   - src/routes/*.ts
+   - src/db/* (migrations)
+   - src/orders/worker.ts
+   - src/orders/executors.ts
+   - src/utils/envelope.ts (format réponse)
+   - src/utils/errors.ts (codes)
+   - src/utils/parseFacts.ts (extraction blocs stdout)
+2) Scripts:
+   - npm run dev
+   - npm run build
+   - npm run start
+   - npm run migrate
+   - npm run seed
+3) Fichier systemd:
+   - ikoma-gateway.service
+   - instructions d’installation (README) pour VPS Ubuntu:
+     - créer user ikoma
+     - créer /var/lib/ikoma
+     - set permissions
+     - enable/start service
+4) Exemples curl (README):
+   - GET /runners
+   - POST order selftest
+   - GET evidences?order_id=...
+
+INTERDICTIONS
+- Aucune dépendance Supabase
+- Aucun Docker requis
+- Aucun endpoint supplémentaire public
+- Aucun “fake success”
+- Ne pas inventer de UI.
+
+FIN.
