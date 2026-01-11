@@ -1,0 +1,11 @@
+services:
+  ikoma-backend:
+    build: .
+    container_name: ikoma-backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./ikoma.db:/app/ikoma.db
+    environment:
+      - NODE_ENV=production
+    restart: always
