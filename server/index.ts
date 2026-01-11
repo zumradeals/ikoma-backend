@@ -1,9 +1,42 @@
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
 const app = express();
+
+// Configuration CORS
+const allowedOrigins = [
+  "https://automate.ikomadigit.com",
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Autoriser les requêtes sans origine (comme curl ou les applications mobiles)
+    if (!origin) return callback(null, true);
+    
+    const isAllowed = allowedOrigins.includes(origin) || 
+                     origin.endsWith(".lovable.app");
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+  exposedHeaders: ["X-Request-Id"],
+  credentials: false
+}));
+
+// Gérer explicitement les requêtes OPTIONS preflight pour /api/*
+app.options("/api/*", (req, res) => {
+  res.sendStatus(204);
+});
 const httpServer = createServer(app);
 
 declare module "http" {

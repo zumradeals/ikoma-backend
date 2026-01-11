@@ -50,6 +50,11 @@ export async function registerRoutes(
 
   // --- API Routes ---
 
+  // 0) GET /api/health
+  app.get("/api/health", (req, res) => {
+    respond(res, { status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // 1) GET /runners
   app.get(api.runners.list.path, async (req, res) => {
     try {
