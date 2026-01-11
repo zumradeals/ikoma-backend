@@ -2,7 +2,11 @@
 
 Service backend pour la gestion des runners et l'exécution des ordres.
 
-## Installation sur VPS Ubuntu
+## 🚀 Déploiement
+
+Pour un déploiement complet sur un VPS Ubuntu 22.04 avec Caddy et HTTPS, veuillez vous référer au **[Runbook de Déploiement Complet](RUNBOOK.md)**.
+
+## Installation rapide sur VPS Ubuntu
 
 ### Prérequis
 - Node.js 20+
