@@ -1,0 +1,17 @@
+[Unit]
+Description=Ikoma Gateway Service
+After=network.target
+
+[Service]
+Type=simple
+User=ikoma
+WorkingDirectory=/var/lib/ikoma/gateway
+ExecStart=/usr/bin/node dist/index.cjs
+Restart=always
+Environment=NODE_ENV=production
+Environment=PORT=8080
+Environment=DB_PATH=/var/lib/ikoma/ikoma.db
+Environment=LOG_LEVEL=info
+
+[Install]
+WantedBy=multi-user.target
